@@ -2,5 +2,7 @@
 #include <linux/module.h>
 
 MODULE_LICENSE("GPL");
-module_init(buf_init);
-module_exit(buf_exit);
+MODULE_AUTHOR("Bublis@github.com");
+MODULE_DESCRIPTION("Ring buffer char devices");
+module_init(rbuf_init);
+module_exit(rbuf_exit);
