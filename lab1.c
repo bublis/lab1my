@@ -2,7 +2,38 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/fs.h>
+#include <asm/uaccess.h>
+#include <linux/cdev.h>
 
+#define BUF_SIZE 4096 /* задаем размер буфера */
+
+DECLARE_WAIT_QUEUE_HEAD(wq); /* очередь для ожидания */
+
+static unsigned int major;  /* старший номер для драйвера */
+static struct cdev *c_dev;	/* структура cdev */
+
+static int rbuf_open(struct inode *, struct file *); /* открытие буфера */
+static int rbuf_write(struct file *, const char __user *, size_t, loff_t *); /* запись в буффер */
+static int rbuf_read(struct file *, char __user *, size_t, loff_t *);	/* чтение из буфера */
+static int rbuf_release(struct inode *, struct file *);	/* освобождение буфера */
+
+/* структура операций с буфером */
+static const struct file_operations fops = {
+	.open = rbuf_open,
+	.write = rbuf_write,
+	.read = rbuf_read,
+	.release = rbuf_release
+};
+/* струтура самого буфера
+ * указатель на таблицу буферов
+ */
+static struct fbuffer {
+	uid_t owner;
+	char data[BUF_SIZE];
+	int head;
+	int tail;
+	int counter;
+} *table;
 static int __init rbuf_init(void) /* регистрация модуля */
 {
 	int ret;
