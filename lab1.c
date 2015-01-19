@@ -34,6 +34,34 @@ static struct fbuffer {
 	int tail;
 	int counter;
 } *table;
+static unsigned int users_count; /* текущее число пользоватлей */
+
+static int get_usr_ind(void) /* получение индекса текущего пользователя в таблице буферов */
+{
+	int i;
+	uid_t current_user = get_current_user()->uid.val;
+
+	if (table == NULL)
+		return -2;
+	for (i = 0; i < users_count; i++)
+		if (table[i].owner == current_user)
+			return i;
+	return -1;
+}
+
+static bool write_cond(int i) /* проверям есть ли место в буфере для записи или нет */
+{
+	if (table[i].counter < BUF_SIZE)
+		return true;
+	return false;
+}
+
+static bool read_cond(int i) /* проверям пустой ли буфер или нет */
+{
+	if (table[i].counter > 0)
+		return true;
+	return false;
+}
 static int __init rbuf_init(void) /* регистрация модуля */
 {
 	int ret;
