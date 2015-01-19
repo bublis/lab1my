@@ -62,6 +62,59 @@ static bool read_cond(int i) /* проверям пустой ли буфер и
 		return true;
 	return false;
 }
+
+static int rbuf_open(struct inode *inode, struct file *filp) /* открытие буфера */
+{
+	uid_t current_user = get_current_user()->uid.val;
+
+	pr_warn("Device opened by process with PID: %d PPID: %d",
+		current->pid, current->real_parent->pid);
+	pr_warn("UID: %d", current_user);
+	if (!table) { /* если таблицы нет то создаем */
+		int i;
+
+		pr_warn("Creating initial table...");
+		table = kalloc(sizeof(*table), GFP_KERNEL); /* выделяем память и обнуляем ее для таблицы буфера */
+		table->owner = current_user; /* владелец юзер */
+		table->head = 0;
+		table->tail = 0;
+		table->counter = 0;
+		/* обнуление данных буфера.
+		 * можно было не делать, т.к. kzalloc заполняет выделенную память 0.
+		 */
+		for (i = 0; i < BUF_SIZE; i++)
+			table->data[i] = 0;
+		users_count++;
+		pr_warn("Table creation complete.");
+	} else {
+		if (get_usr_ind() == -1) {
+			int i;
+			struct fbuffer *temp;	/* создаем новый буфер для другого юзера */
+			pr_warn("Creating buffer for new user...");
+			temp = table;
+			table = krealloc(temp, sizeof(struct fbuffer) * /* довыделяем память */
+					 (users_count + 1), GFP_KERNEL);
+			temp = NULL;
+			table[users_count].owner = current_user;
+			table[users_count].head = 0;
+			table[users_count].tail = 0;
+			table[users_count].counter = 0;
+			for (i = 0; i < BUF_SIZE; i++)
+				table[users_count].data[i] = 0;
+			users_count++;
+			pr_warn("Buffer creating complete.");
+		}
+	}
+	return 0;
+}
+
+static int rbuf_release(struct inode *inode, struct file *filp) /* вызывается когда все процессы закрыли файл */
+{
+	pr_alert("Device released by process with PID: %d PPID: %d",
+		 current->pid, current->real_parent->pid);
+	wake_up(&wq);
+	return 0;
+}
 static int __init rbuf_init(void) /* регистрация модуля */
 {
 	int ret;
