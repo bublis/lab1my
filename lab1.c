@@ -74,7 +74,7 @@ static int rbuf_open(struct inode *inode, struct file *filp) /* открытие
 		int i;
 
 		pr_warn("Creating initial table...");
-		table = kalloc(sizeof(*table), GFP_KERNEL); /* выделяем память и обнуляем ее для таблицы буфера */
+		table = kalloc(sizeof(*table), GFP_KERNEL); /* выделяем память для таблицы буфера */
 		table->owner = current_user; /* владелец юзер */
 		table->head = 0;
 		table->tail = 0;
@@ -106,6 +106,75 @@ static int rbuf_open(struct inode *inode, struct file *filp) /* открытие
 		}
 	}
 	return 0;
+}
+
+/* запись в буфер */
+static int rbuf_write(struct file *filp, const char __user *usr_buf,
+		      size_t count, loff_t *f_pos)
+{
+	int b_write = 0; /* сколько записано в буфер */
+	char local_buf;
+	int i = get_usr_ind();
+
+	pr_alert("User %d request write %d bytes.",
+		 table[i].owner, count);
+	while (b_write < count) {	/* если записано меньшее чем тело буфера */
+		if (!write_cond(i))	/* если не выполняется условие записи */
+			wait_event_interruptible(wq, write_cond(i)); /* ставим в ожередб ожидающих */
+		/* если можем записывать (буфер не полон) и число записанных байт < переданных для записи */
+		while (write_cond(i) && b_write < count) {
+			unsigned long copy_retval;		/* значение, которое везнет copy_from_user()*/
+			/* считываем во временный буфер 1 байт из пространства пользователя */
+			copy_retval = copy_from_user(&local_buf,
+						     usr_buf + b_write, 1);
+			if (copy_retval != 0) { /* если не 0, то неуспешно считали в copy_from_user() */
+				pr_err("Error: copy_from_user() function.");
+				return -1;
+			}
+			table[i].data[table[i].head] = local_buf; /* заносим 1 байт в буфер текущего пользователя */
+			table[i].head++;	/* сдвигаем голову */
+			table[i].counter++;	/* увеличиваем число байт записанных в буфер */
+			if (table[i].head >= BUF_SIZE) /* циклический буфер. переходим в начало */
+				table[i].head = 0;
+			b_write++;
+			wake_up(&wq); /* пормошим очередь */
+		}
+	}
+	return b_write;
+}
+
+static int rbuf_read(struct file *filp, char __user *usr_buf, /* тут обратное записи */
+		     size_t count, loff_t *f_pos)
+{
+	int b_read = 0;
+	char local_buf;
+	int i = get_usr_ind();
+
+	pr_alert("User %d request read %d bytes.",
+		 table[i].owner, count);
+	while (b_read < count) {
+		if (!read_cond(i))
+			wait_event_interruptible(wq, read_cond(i));
+		while (read_cond(i) && b_read < count) {
+			unsigned long copy_retval;
+
+			local_buf = table[i].data[table[i].tail];
+			table[i].data[table[i].tail] = 0;
+			table[i].tail++;
+			table[i].counter--;
+			if (table[i].tail >= BUF_SIZE)
+				table[i].tail = 0;
+			copy_retval = copy_to_user(usr_buf + b_read,
+						   &local_buf, 1);
+			if (copy_retval != 0) {
+				pr_err("Error: copy_to_user() function.");
+				return -1;
+			}
+			b_read++;
+			wake_up(&wq);
+		}
+	}
+	return b_read;
 }
 
 static int rbuf_release(struct inode *inode, struct file *filp) /* вызывается когда все процессы закрыли файл */
