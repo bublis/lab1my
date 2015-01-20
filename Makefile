@@ -1,4 +1,4 @@
-obj-m := ring_buffer.o 
+obj-m := lab1.o 
 KDIR  := /lib/modules/$(shell uname -r)/build
 PWD   := $(shell pwd)
 ccflags-y := -Wall

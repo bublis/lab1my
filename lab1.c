@@ -1,9 +1,14 @@
-#include <linux/init.h>
 #include <linux/module.h>
+#include <linux/init.h>
 #include <linux/kernel.h>
-#include <linux/fs.h>
-#include <asm/uaccess.h>
 #include <linux/cdev.h>
+#include <linux/fs.h>
+#include <linux/sched.h>
+#include <asm/current.h>
+#include <linux/uidgid.h>
+#include <linux/slab.h>
+#include <asm/uaccess.h>
+#include <linux/wait.h>
 
 #define BUF_SIZE 4096 /* задаем размер буфера */
 
@@ -67,14 +72,14 @@ static int rbuf_open(struct inode *inode, struct file *filp) /* открытие
 {
 	uid_t current_user = get_current_user()->uid.val;
 
-	pr_warn("Device opened by process with PID: %d PPID: %d",
+	printk("Device opened by process with PID: %d PPID: %d",
 		current->pid, current->real_parent->pid);
-	pr_warn("UID: %d", current_user);
+	printk("UID: %d", current_user);
 	if (!table) { /* если таблицы нет то создаем */
 		int i;
 
-		pr_warn("Creating initial table...");
-		table = kalloc(sizeof(*table), GFP_KERNEL); /* выделяем память для таблицы буфера */
+		printk("Creating initial table...");
+		table = kzalloc(sizeof(*table), GFP_KERNEL); /* выделяем память для таблицы буфера */
 		table->owner = current_user; /* владелец юзер */
 		table->head = 0;
 		table->tail = 0;
@@ -85,12 +90,12 @@ static int rbuf_open(struct inode *inode, struct file *filp) /* открытие
 		for (i = 0; i < BUF_SIZE; i++)
 			table->data[i] = 0;
 		users_count++;
-		pr_warn("Table creation complete.");
+		printk("Table creation complete.");
 	} else {
 		if (get_usr_ind() == -1) {
 			int i;
 			struct fbuffer *temp;	/* создаем новый буфер для другого юзера */
-			pr_warn("Creating buffer for new user...");
+			printk("Creating buffer for new user...");
 			temp = table;
 			table = krealloc(temp, sizeof(struct fbuffer) * /* довыделяем память */
 					 (users_count + 1), GFP_KERNEL);
@@ -102,7 +107,7 @@ static int rbuf_open(struct inode *inode, struct file *filp) /* открытие
 			for (i = 0; i < BUF_SIZE; i++)
 				table[users_count].data[i] = 0;
 			users_count++;
-			pr_warn("Buffer creating complete.");
+			printk("Buffer creating complete.");
 		}
 	}
 	return 0;
@@ -116,7 +121,7 @@ static int rbuf_write(struct file *filp, const char __user *usr_buf,
 	char local_buf;
 	int i = get_usr_ind();
 
-	pr_alert("User %d request write %d bytes.",
+	printk("User %d request write %d bytes.",
 		 table[i].owner, count);
 	while (b_write < count) {	/* если записано меньшее чем тело буфера */
 		if (!write_cond(i))	/* если не выполняется условие записи */
@@ -128,7 +133,7 @@ static int rbuf_write(struct file *filp, const char __user *usr_buf,
 			copy_retval = copy_from_user(&local_buf,
 						     usr_buf + b_write, 1);
 			if (copy_retval != 0) { /* если не 0, то неуспешно считали в copy_from_user() */
-				pr_err("Error: copy_from_user() function.");
+				printk("Error: copy_from_user() function.");
 				return -1;
 			}
 			table[i].data[table[i].head] = local_buf; /* заносим 1 байт в буфер текущего пользователя */
@@ -150,7 +155,7 @@ static int rbuf_read(struct file *filp, char __user *usr_buf, /* тут обра
 	char local_buf;
 	int i = get_usr_ind();
 
-	pr_alert("User %d request read %d bytes.",
+	printk("User %d request read %d bytes.",
 		 table[i].owner, count);
 	while (b_read < count) {
 		if (!read_cond(i))
@@ -167,7 +172,7 @@ static int rbuf_read(struct file *filp, char __user *usr_buf, /* тут обра
 			copy_retval = copy_to_user(usr_buf + b_read,
 						   &local_buf, 1);
 			if (copy_retval != 0) {
-				pr_err("Error: copy_to_user() function.");
+				printk("Error: copy_to_user() function.");
 				return -1;
 			}
 			b_read++;
@@ -179,7 +184,7 @@ static int rbuf_read(struct file *filp, char __user *usr_buf, /* тут обра
 
 static int rbuf_release(struct inode *inode, struct file *filp) /* вызывается когда все процессы закрыли файл */
 {
-	pr_alert("Device released by process with PID: %d PPID: %d",
+	printk("Device released by process with PID: %d PPID: %d",
 		 current->pid, current->real_parent->pid);
 	wake_up(&wq);
 	return 0;
@@ -191,7 +196,7 @@ static int __init rbuf_init(void) /* регистрация модуля */
 
 	c_dev = cdev_alloc(); /* выделяем память под cdev */
 	c_dev->owner = THIS_MODULE; /* заполнение поля owner (владелец) */
-	ret = alloc_chrdev_region(&dev_number, 0, 1, "ring_buffer"); /* динамическое выделение региона номеров устройства */
+	ret = alloc_chrdev_region(&dev_number, 0, 1, "lab1"); /* динамическое выделение региона номеров устройства */
 	if (ret < 0) {
 		printk("Char device region allocation failed.");
 		return ret;
