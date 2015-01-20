@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <fcntl.h>
 
-static const char *path_name_of_module = "/dev/ring_buffer0";
+static const char *path_name_of_module = "/dev/lab10";
 
 int main(int argc, char *argv[])
 {
